@@ -36,6 +36,11 @@ def main() -> None:
         action="store_true",
         help="Stream raw audio to stdout",
     )
+    parser.add_argument(
+        "--output-alignment-file",
+        "--output-alignment-file",
+        help="Path to output alignment data file"
+    )
     #
     parser.add_argument("-s", "--speaker", type=int, help="Id of speaker (default: 0)")
     parser.add_argument(
@@ -114,6 +119,10 @@ def main() -> None:
         "sentence_silence": args.sentence_silence,
     }
 
+    alignment_file = None
+    if args.output_alignment_file:
+        alignment_file = args.output_alignment_file
+
     if args.output_raw:
         # Read line-by-line
         for line in sys.stdin:
@@ -126,6 +135,7 @@ def main() -> None:
             for audio_bytes in audio_stream:
                 sys.stdout.buffer.write(audio_bytes)
                 sys.stdout.buffer.flush()
+
     elif args.output_dir:
         output_dir = Path(args.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -137,10 +147,12 @@ def main() -> None:
                 continue
 
             wav_path = output_dir / f"{time.monotonic_ns()}.wav"
+
             with wave.open(str(wav_path), "wb") as wav_file:
-                voice.synthesize(line, wav_file, **synthesize_args)
+                voice.synthesize(line, wav_file, alignment_file, **synthesize_args)
 
             _LOGGER.info("Wrote %s", wav_path)
+
     else:
         # Read entire input
         text = sys.stdin.read()
@@ -148,11 +160,11 @@ def main() -> None:
         if (not args.output_file) or (args.output_file == "-"):
             # Write to stdout
             with wave.open(sys.stdout.buffer, "wb") as wav_file:
-                voice.synthesize(text, wav_file, **synthesize_args)
+                voice.synthesize(text, wav_file, alignment_file, **synthesize_args)
         else:
             # Write to file
             with wave.open(args.output_file, "wb") as wav_file:
-                voice.synthesize(text, wav_file, **synthesize_args)
+                voice.synthesize(text, wav_file, alignment_file, **synthesize_args)
 
 
 if __name__ == "__main__":

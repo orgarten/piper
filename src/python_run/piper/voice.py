@@ -1,5 +1,6 @@
 import json
 import logging
+import sys
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -81,6 +82,7 @@ class PiperVoice:
         self,
         text: str,
         wav_file: wave.Wave_write,
+        alignment_file=None,
         speaker_id: Optional[int] = None,
         length_scale: Optional[float] = None,
         noise_scale: Optional[float] = None,
@@ -92,15 +94,70 @@ class PiperVoice:
         wav_file.setsampwidth(2)  # 16-bit
         wav_file.setnchannels(1)  # mono
 
-        for audio_bytes in self.synthesize_stream_raw(
-            text,
-            speaker_id=speaker_id,
-            length_scale=length_scale,
-            noise_scale=noise_scale,
-            noise_w=noise_w,
-            sentence_silence=sentence_silence,
-        ):
-            wav_file.writeframes(audio_bytes)
+        if alignment_file is None:
+            for audio_bytes in self.synthesize_stream_raw(
+                text,
+                speaker_id=speaker_id,
+                length_scale=length_scale,
+                noise_scale=noise_scale,
+                noise_w=noise_w,
+                sentence_silence=sentence_silence,
+            ):
+                wav_file.writeframes(audio_bytes)
+        else:
+            with open(alignment_file, "w") as file:
+                # clear file before appending new data
+                pass
+
+            for counter, (audio_bytes, alignment_data) in enumerate(self.synthesize_stream_with_alignment_raw(
+                text,
+                speaker_id=speaker_id,
+                length_scale=length_scale,
+                noise_scale=noise_scale,
+                noise_w=noise_w,
+                sentence_silence=sentence_silence,
+            )):
+                with open(alignment_file, "a") as file:
+                    time = alignment_data[counter][0]
+                    sentence = alignment_data[counter][1]
+                    offset = alignment_data[counter][2]
+
+                    file.write(f"{time}, {sentence}, {offset}\n")
+
+                wav_file.writeframes(audio_bytes)
+
+    def synthesize_stream_with_alignment_raw(self,
+        text: str,
+        speaker_id: Optional[int] = None,
+        length_scale: Optional[float] = None,
+        noise_scale: Optional[float] = None,
+        noise_w: Optional[float] = None,
+        sentence_silence: float = 0.0,
+    ) -> Iterable[bytes]:
+        """Synthesize raw audio per sentence from text."""
+        alignment_data = [([], t, []) for t in text.split(".")]
+
+        accumulated_length = 0.0
+        offset = 0
+
+        for counter, audio_bytes in enumerate(self.synthesize_stream_raw(
+                text,
+                speaker_id=speaker_id,
+                length_scale=length_scale,
+                noise_scale=noise_scale,
+                noise_w=noise_w,
+                sentence_silence=sentence_silence
+                )):
+
+            alignment_data[counter][0].append(accumulated_length)
+            alignment_data[counter][2].append(offset)
+
+            length = len(audio_bytes) / (self.config.sample_rate * 2)
+
+            accumulated_length += length
+            offset += len(alignment_data[counter][1])
+
+            yield audio_bytes, alignment_data
 
     def synthesize_stream_raw(
         self,
@@ -127,6 +184,7 @@ class PiperVoice:
                 noise_scale=noise_scale,
                 noise_w=noise_w,
             ) + silence_bytes
+
 
     def synthesize_ids_to_raw(
         self,
@@ -175,3 +233,4 @@ class PiperVoice:
         audio = audio_float_to_int16(audio.squeeze())
 
         return audio.tobytes()
+
