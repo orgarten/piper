@@ -122,7 +122,7 @@ class PiperVoice:
                     sentence = alignment_data[counter][1]
                     offset = alignment_data[counter][2]
 
-                    file.write(f"{time}, {sentence}, {offset}\n")
+                    file.write(f"{time[0]}, {sentence}, {offset[0]}\n")
 
                 wav_file.writeframes(audio_bytes)
 
