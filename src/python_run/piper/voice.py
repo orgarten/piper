@@ -35,6 +35,8 @@ class PiperVoice:
         with open(config_path, "r", encoding="utf-8") as config_file:
             config_dict = json.load(config_file)
 
+        onnxruntime.set_seed(0)
+
         return PiperVoice(
             config=PiperConfig.from_dict(config_dict),
             session=onnxruntime.InferenceSession(
@@ -146,8 +148,6 @@ class PiperVoice:
         """Synthesize raw audio per sentence from text."""
         alignment_data = [([], t, []) for t in text.split(".")]
 
-        print(f"{alignment_data=}")
-
         accumulated_length = 0.0
         offset = 0
 
@@ -165,8 +165,6 @@ class PiperVoice:
                 noise_w=noise_w,
                 sentence_silence=sentence_silence
                 )):
-
-            print(f"{counter=}")
 
             alignment_data[counter][0].append(accumulated_length)
             alignment_data[counter][2].append(offset)
@@ -189,9 +187,6 @@ class PiperVoice:
     ) -> Iterable[bytes]:
         """Synthesize raw audio per sentence from text."""
         sentence_phonemes = self.phonemize(text)
-
-        for elem in sentence_phonemes:
-            print("".join(elem))
 
         num_silence_samples = int(sentence_silence * self.config.sample_rate)
         silence_bytes = bytes(num_silence_samples * 2)
