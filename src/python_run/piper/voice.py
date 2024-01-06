@@ -4,7 +4,7 @@ import sys
 import wave
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
 import onnxruntime
@@ -37,14 +37,23 @@ class PiperVoice:
 
         onnxruntime.set_seed(0)
 
+        providers: List[Union[str, Tuple[str, Dict[str, Any]]]]
+        if use_cuda:
+            providers = [
+                (
+                    "CUDAExecutionProvider",
+                    {"cudnn_conv_algo_search": "HEURISTIC"},
+                )
+            ]
+        else:
+            providers = ["CPUExecutionProvider"]
+
         return PiperVoice(
             config=PiperConfig.from_dict(config_dict),
             session=onnxruntime.InferenceSession(
                 str(model_path),
                 sess_options=onnxruntime.SessionOptions(),
-                providers=["CPUExecutionProvider"]
-                if not use_cuda
-                else [("CUDAExecutionProvider", {"cudnn_conv_algo_search": "HEURISTIC"})],
+                providers=providers,
             ),
         )
 
