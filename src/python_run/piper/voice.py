@@ -35,6 +35,7 @@ class PiperVoice:
         with open(config_path, "r", encoding="utf-8") as config_file:
             config_dict = json.load(config_file)
 
+        # set a seed ro reduce randomness
         onnxruntime.set_seed(0)
 
         providers: List[Union[str, Tuple[str, Dict[str, Any]]]]
@@ -79,7 +80,7 @@ class PiperVoice:
 
         for phoneme in phonemes:
             if phoneme not in id_map:
-                _LOGGER.warning("Missing phoneme from id map: %s", phoneme)
+                _LOGGER.warning("Missing phoneme from id map: '%s'", phoneme)
                 continue
 
             ids.extend(id_map[phoneme])
@@ -89,12 +90,100 @@ class PiperVoice:
 
         return ids
 
+    def synthesize_with_alignment_data(
+            self,
+            text: str,
+            wav_file: wave.Wave_write,
+            alignment_file: str,
+            phoneme_input=False,
+            speaker_id: Optional[int] = None,
+            length_scale: Optional[float] = None,
+            noise_scale: Optional[float] = None,
+            noise_w: Optional[float] = None,
+            sentence_silence: float = 0.0,
+    ):
+        # 1. split text in sentences
+        # 2. split sentence in words
+        # 3. build word alignment data for sentence
+        # 4. synthesize sentence
+        # 5. write sentence to wave-file
+        # 6. go back to 1
+
+        sentences = text.split(".")[:-1]
+        print(f"{sentences=}")
+        sentences = [s + "." for s in sentences]
+
+        with open(alignment_file, "w"):
+            pass
+
+        global_time = 0
+        global_offset = 0
+
+        with wave.open("single_word.wav", "wb") as word_wav_file:
+
+            word_wav_file.setframerate(self.config.sample_rate)
+            word_wav_file.setsampwidth(2)  # 16-bit
+            word_wav_file.setnchannels(1)  # mono
+
+            for sentence in sentences:
+                # (word, start_time, end_time, start_offset, phonemes)
+                word_alignment = [[s,  0, 0, 0, []] for s in sentence.strip().split(" ")]
+
+                accumulated_time = 0
+                offset = 0
+                for index, word_data in enumerate(word_alignment):
+                    #word_phonemes = self.phonemize(word_data[0])[0]
+                    #print(f"{word_phonemes=}")
+                    for audio_bytes in self.synthesize_stream_raw(
+                       text=word_data[0],
+                       speaker_id=speaker_id,
+                       length_scale=length_scale,
+                       noise_scale=noise_scale,
+                       noise_w=noise_w,
+                    ):
+                        num_silence_samples = int(sentence_silence * self.config.sample_rate)
+                        silence_bytes = bytes(num_silence_samples * 2)
+
+                        word_wav_file.writeframes(audio_bytes)
+
+                        word_alignment[index][1] = accumulated_time
+                        word_alignment[index][3] = offset
+
+                        length = len(audio_bytes) / (self.config.sample_rate * 2)
+
+                        accumulated_time += length
+                        offset += len(word_data[0]) + 1
+
+                        word_alignment[index][2] = accumulated_time
+
+                        sentence_data = word_alignment[index][0]
+                        start_time_data = word_alignment[index][1] + global_time
+                        end_time_data = word_alignment[index][2] + global_time
+                        offset_data = word_alignment[index][3] + global_offset
+
+                        print(f"{start_time_data}, {end_time_data}, {sentence_data.rstrip()}, {offset_data}")
+                        with open(alignment_file, "a") as file:
+                            file.write(f"{start_time_data}, {end_time_data}, {sentence_data.rstrip()}, {offset_data}\n")
+
+                for audio_bytes in self.synthesize_stream_raw(
+                       sentence,
+                       speaker_id=speaker_id,
+                       length_scale=length_scale,
+                       noise_scale=noise_scale,
+                       noise_w=noise_w,
+                       sentence_silence=sentence_silence,
+                ):
+                    global_time += len(audio_bytes) / (self.config.sample_rate * 2)
+                    global_offset += len(sentence)
+                    print(f"{global_time=}, {global_offset=}")
+                    wav_file.writeframes(audio_bytes)
+
     def synthesize(
         self,
         text: str,
         wav_file: wave.Wave_write,
         alignment_file=None,
-        phoneme_input = False,
+        phoneme_input=False,
         speaker_id: Optional[int] = None,
         length_scale: Optional[float] = None,
         noise_scale: Optional[float] = None,
@@ -106,84 +195,32 @@ class PiperVoice:
         wav_file.setsampwidth(2)  # 16-bit
         wav_file.setnchannels(1)  # mono
 
-        if alignment_file is None:
-            if not phoneme_input:
-                synthesizer = self.synthesize_stream_raw
-            else:
-                synthesizer = self.synthesize_stream_raw_from_phonemes
-
-            for audio_bytes in synthesizer(
-                text,
-                speaker_id=speaker_id,
-                length_scale=length_scale,
-                noise_scale=noise_scale,
-                noise_w=noise_w,
-                sentence_silence=sentence_silence,
-            ):
-                wav_file.writeframes(audio_bytes)
-        else:
-            with open(alignment_file, "w") as file:
-                # clear file before appending new data
-                pass
-
-            for counter, (audio_bytes, alignment_data) in enumerate(self.synthesize_stream_with_alignment_raw(
-                text,
-                phoneme_input=phoneme_input,
-                speaker_id=speaker_id,
-                length_scale=length_scale,
-                noise_scale=noise_scale,
-                noise_w=noise_w,
-                sentence_silence=sentence_silence,
-            )):
-                with open(alignment_file, "a") as file:
-                    time = alignment_data[counter][0]
-                    sentence = alignment_data[counter][1]
-                    offset = alignment_data[counter][2]
-
-                    file.write(f"{time[0]}, {sentence}, {offset[0]}\n")
-
-                wav_file.writeframes(audio_bytes)
-
-    def synthesize_stream_with_alignment_raw(
-        self,
-        text: str,
-        phoneme_input=False,
-        speaker_id: Optional[int] = None,
-        length_scale: Optional[float] = None,
-        noise_scale: Optional[float] = None,
-        noise_w: Optional[float] = None,
-        sentence_silence: float = 0.0,
-    ) -> Iterable[bytes]:
-        """Synthesize raw audio per sentence from text."""
-        alignment_data = [([], t, []) for t in text.split(".")]
-
-        accumulated_length = 0.0
-        offset = 0
-
         if not phoneme_input:
             synthesizer = self.synthesize_stream_raw
-
         else:
             synthesizer = self.synthesize_stream_raw_from_phonemes
 
-        for counter, audio_bytes in enumerate(synthesizer(
+        if alignment_file is not None:
+            self.synthesize_with_alignment_data(
                 text,
-                speaker_id=speaker_id,
+                wav_file=wav_file,
+                alignment_file=alignment_file,
+                phoneme_input=phoneme_input,
                 length_scale=length_scale,
                 noise_scale=noise_scale,
                 noise_w=noise_w,
-                sentence_silence=sentence_silence
-                )):
+                sentence_silence=sentence_silence,
+            )
 
-            alignment_data[counter][0].append(accumulated_length)
-            alignment_data[counter][2].append(offset)
-
-            length = len(audio_bytes) / (self.config.sample_rate * 2)
-
-            accumulated_length += length
-            offset += len(alignment_data[counter][1])
-
-            yield audio_bytes, alignment_data
+        #for audio_bytes in synthesizer(
+        #        text,
+        #        speaker_id=speaker_id,
+        #        length_scale=length_scale,
+        #        noise_scale=noise_scale,
+        #        noise_w=noise_w,
+        #        sentence_silence=sentence_silence,
+        #):
+        #    wav_file.writeframes(audio_bytes)
 
     def synthesize_stream_raw(
         self,
@@ -226,9 +263,12 @@ class PiperVoice:
         num_silence_samples = int(sentence_silence * self.config.sample_rate)
         silence_bytes = bytes(num_silence_samples * 2)
 
-        sentences = text_phonemes.split(".")
+        sentences = text_phonemes.split("\n")
+        print(sentences)
         sentence_phonemes = []
         for sentence in sentences:
+            if sentence == '':
+                continue
             sentence_phonemes.append(list(sentence))
 
         for phonemes in sentence_phonemes:
