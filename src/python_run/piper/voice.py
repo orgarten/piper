@@ -101,6 +101,7 @@ class PiperVoice:
             noise_scale: Optional[float] = None,
             noise_w: Optional[float] = None,
             sentence_silence: float = 0.0,
+            correction_factor: Optional[float] = 0.66
     ):
         # 1. split text in sentences
         # 2. split sentence in words
@@ -132,8 +133,6 @@ class PiperVoice:
                 accumulated_time = 0
                 offset = 0
                 for index, word_data in enumerate(word_alignment):
-                    #word_phonemes = self.phonemize(word_data[0])[0]
-                    #print(f"{word_phonemes=}")
                     for audio_bytes in self.synthesize_stream_raw(
                        text=word_data[0],
                        speaker_id=speaker_id,
@@ -149,7 +148,7 @@ class PiperVoice:
                         word_alignment[index][1] = accumulated_time
                         word_alignment[index][3] = offset
 
-                        length = len(audio_bytes) / (self.config.sample_rate * 2)
+                        length = len(audio_bytes) / (self.config.sample_rate * 2) * correction_factor
 
                         accumulated_time += length
                         offset += len(word_data[0]) + 1
@@ -175,6 +174,7 @@ class PiperVoice:
                 ):
                     global_time += len(audio_bytes) / (self.config.sample_rate * 2)
                     global_offset += len(sentence)
+                    print(f"sentence: {len(audio_bytes) / (self.config.sample_rate * 2)}, {len(sentence)}")
                     print(f"{global_time=}, {global_offset=}")
                     wav_file.writeframes(audio_bytes)
 
@@ -195,11 +195,6 @@ class PiperVoice:
         wav_file.setsampwidth(2)  # 16-bit
         wav_file.setnchannels(1)  # mono
 
-        if not phoneme_input:
-            synthesizer = self.synthesize_stream_raw
-        else:
-            synthesizer = self.synthesize_stream_raw_from_phonemes
-
         if alignment_file is not None:
             self.synthesize_with_alignment_data(
                 text,
@@ -212,15 +207,16 @@ class PiperVoice:
                 sentence_silence=sentence_silence,
             )
 
-        #for audio_bytes in synthesizer(
-        #        text,
-        #        speaker_id=speaker_id,
-        #        length_scale=length_scale,
-        #        noise_scale=noise_scale,
-        #        noise_w=noise_w,
-        #        sentence_silence=sentence_silence,
-        #):
-        #    wav_file.writeframes(audio_bytes)
+        else:
+            for audio_bytes in self.synthesize_stream_raw(
+                    text,
+                    speaker_id=speaker_id,
+                    length_scale=length_scale,
+                    noise_scale=noise_scale,
+                    noise_w=noise_w,
+                    sentence_silence=sentence_silence,
+            ):
+                wav_file.writeframes(audio_bytes)
 
     def synthesize_stream_raw(
         self,
