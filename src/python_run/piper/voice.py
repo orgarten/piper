@@ -189,6 +189,7 @@ class PiperVoice:
         noise_scale: Optional[float] = None,
         noise_w: Optional[float] = None,
         sentence_silence: float = 0.0,
+        correction_factor: Optional[float] = 0.66
     ):
         """Synthesize WAV audio from text."""
         wav_file.setframerate(self.config.sample_rate)
@@ -205,6 +206,7 @@ class PiperVoice:
                 noise_scale=noise_scale,
                 noise_w=noise_w,
                 sentence_silence=sentence_silence,
+                correction_factor=correction_factor
             )
 
         else:

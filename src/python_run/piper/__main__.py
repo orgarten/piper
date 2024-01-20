@@ -42,6 +42,12 @@ def main() -> None:
         help="Path to output alignment data file"
     )
     parser.add_argument(
+        "--word-alignment-correction-scale",
+        "--word-alignment-correction-scale",
+        type=float,
+        help="Scaling factor for alignment data which depends on the chosen voice (default: 0.66)"
+    )
+    parser.add_argument(
         "-p",
         "--phoneme-input",
         action="store_true",
@@ -124,6 +130,7 @@ def main() -> None:
         "noise_scale": args.noise_scale,
         "noise_w": args.noise_w,
         "sentence_silence": args.sentence_silence,
+        "correction_factor": args.word_alignment_correction_scale
     }
 
     alignment_file = None
