@@ -60,18 +60,37 @@ class PiperVoice:
 
     def phonemize(self, text: str) -> List[List[str]]:
         """Text to phonemes grouped by sentence."""
-        if self.config.phoneme_type == PhonemeType.ESPEAK:
-            if self.config.espeak_voice == "ar":
-                # Arabic diacritization
-                # https://github.com/mush42/libtashkeel/
-                text = tashkeel_run(text)
 
-            return phonemize_espeak(text, self.config.espeak_voice)
+        import re
+        regex = re.compile(r"\[\[|\]\]")
 
-        if self.config.phoneme_type == PhonemeType.TEXT:
-            return phonemize_codepoints(text)
+        phonemes = []
+        for sentence in text.split("."):
+            split_text = re.split(regex, sentence)
+            sentence_phonemes = []
+            for text_part in split_text:
+                if text_part.isascii():
+                    if self.config.phoneme_type == PhonemeType.ESPEAK:
+                        if self.config.espeak_voice == "ar":
+                            # Arabic diacritization
+                            # https://github.com/mush42/libtashkeel/
+                            text = tashkeel_run(text_part)
+                        ps = phonemize_espeak(text_part, self.config.espeak_voice)
+                        sentence_phonemes.extend(ps)
+                        sentence_phonemes.extend([" "])
 
-        raise ValueError(f"Unexpected phoneme type: {self.config.phoneme_type}")
+                    if self.config.phoneme_type == PhonemeType.TEXT:
+                        sentence_phonemes.extend(phonemize_codepoints(text_part))
+                        sentence_phonemes.extend([" "])
+
+                        raise ValueError(f"Unexpected phoneme type: {self.config.phoneme_type}")
+                else:
+                    sentence_phonemes.append(list(text_part + " "))
+
+            phonemes.append([p for part in sentence_phonemes for p in part])
+
+        return phonemes
+
 
     def phonemes_to_ids(self, phonemes: List[str]) -> List[int]:
         """Phonemes to ids."""
